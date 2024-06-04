@@ -1,12 +1,20 @@
 package main
 
-import "github.com/hashicorp/packer/packer/plugin"
+import (
+	"fmt"
+	"os"
+
+	"github.com/hashicorp/packer-plugin-sdk/plugin"
+	"github.com/hashicorp/packer-plugin-sdk/version"
+)
 
 func main() {
-	server, err := plugin.Server()
+	pps := plugin.NewSet()
+	pps.RegisterPostProcessor(plugin.DEFAULT_NAME, new(PostProcessor))
+	pps.SetVersion(version.InitializePluginVersion("2.0.0", ""))
+	err := pps.Run()
 	if err != nil {
-		panic(err)
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
 	}
-	server.RegisterPostProcessor(&PostProcessor{})
-	server.Serve()
 }
