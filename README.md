@@ -199,6 +199,7 @@ Configuration
 -------------
 
 All configuration properties are **required**, except where noted.
+
 ### region
 
 The S3 region of the bucket (please see next section).
@@ -251,14 +252,15 @@ An access control setting for the uploaded files (both the manifest and box file
 
 Valid values:
 
-* private
-* public-read
-* public-read-write (not recommended)
-* authenticated-read
-* bucket-owner-read
-* bucket-owner-full-control
+* `private`
+* `public-read`
+* `public-read-write` (not recommended)
+* `authenticated-read`
+* `bucket-owner-read`
+* `bucket-owner-full-control`
 
-If not set, will use `public-read`.
+If not set, will use the configured defaults for your AWS (company) account. Set this to `public-read` if you want 
+public accessibility.
 
 ### signed_expiry (optional)
 
