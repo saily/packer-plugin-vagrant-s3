@@ -1,5 +1,12 @@
 # Change log
 
+## 2.1.0
+
+* Remove the `vagrant` pre post-processor constraint (an artifact could also be loaded from an `artifice` post-processor). 
+  The check for the artifact containing a `.box` file seems to be sufficient for this purpose.  
+* Mark `version` attribute as deprecated, use `box_version`, `box_architecture` and `box_provider` for more information in the `manifest.json`. 
+  If no `box_provider` is provided, it is guessed from the builder as in earlier releases.
+
 ## 1.4.0
 
 * add support for overriding some S3 uploader options, useful on less reliable connections

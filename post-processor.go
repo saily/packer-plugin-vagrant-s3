@@ -35,7 +35,10 @@ type Config struct {
 	ManifestPath        string        `mapstructure:"manifest"`
 	BoxName             string        `mapstructure:"box_name"`
 	BoxDir              string        `mapstructure:"box_dir"`
-	Version             string        `mapstructure:"version"`
+	BoxProvider         string        `mapstructure:"box_provider"`
+	BoxArchitecture     string        `mapstructure:"box_architecture"`
+	BoxVersion          string        `mapstructure:"box_version"`
+	Version             string        `mapstructure:"version"` // TODO: Remove this in future and use BoxVersion
 	ACL                 string        `mapstructure:"acl"`
 	CredentialFile      string        `mapstructure:"credentials"`
 	CredentialProfile   string        `mapstructure:"profile"`
@@ -46,6 +49,7 @@ type Config struct {
 	StorageClass        string        `mapstructure:"storage_class"`
 	PartSize            int64         `mapstructure:"part_size"`
 	Concurrency         int           `mapstructure:"concurrency"`
+	ManifestCustomAttrs string        `mapstructure:"manifest_custom_attrs"`
 	common.PackerConfig `mapstructure:",squash"`
 
 	ctx interpolate.Context
@@ -91,7 +95,7 @@ func (p *PostProcessor) Configure(raws ...interface{}) error {
 	for key, ptr := range templates {
 		if err = interpolate.Validate(*ptr, &p.config.ctx); err != nil {
 			errs = packer.MultiErrorAppend(
-				errs, fmt.Errorf("Error parsing %s template: %s", key, err))
+				errs, fmt.Errorf("error parsing %s template: %s", key, err))
 		}
 	}
 
@@ -142,21 +146,16 @@ func (p *PostProcessor) Configure(raws ...interface{}) error {
 		errs = packer.MultiErrorAppend(errs, fmt.Errorf("Unable to access the bucket %s:\n%s\nMake sure your credentials are valid and have sufficient permissions", p.config.Bucket, err))
 	}
 
-	if p.config.ACL == "" {
-		p.config.ACL = "public-read"
-	}
-
-	// set default storage class
-	if p.config.StorageClass == "" {
-		p.config.StorageClass = "STANDARD"
-	}
-
 	if p.config.PartSize == 0 {
 		p.config.PartSize = s3manager.DefaultUploadPartSize
 	}
 
 	if p.config.Concurrency == 0 {
 		p.config.Concurrency = s3manager.DefaultUploadConcurrency
+	}
+
+	if p.config.StorageClass == "" {
+		p.config.StorageClass = s3.ObjectStorageClassStandard
 	}
 
 	if len(errs.Errors) > 0 {
@@ -168,57 +167,60 @@ func (p *PostProcessor) Configure(raws ...interface{}) error {
 
 func (p *PostProcessor) PostProcess(context context.Context, ui packer.Ui, artifact packer.Artifact) (packer.Artifact, bool, bool, error) {
 
-	// Only accept input from the vagrant post-processor
-
-	if artifact.BuilderId() != "mitchellh.post-processor.vagrant" && artifact.BuilderId() != "vagrant" {
-		return nil, false, false, fmt.Errorf("Unknown artifact type, requires box from vagrant post-processor: %s", artifact.BuilderId())
+	// Check if the artifact contains a manifest-file, a checksum-file and a box-file.
+	boxPath := ""
+	for _, filePath := range artifact.Files() {
+		if strings.HasSuffix(filePath, ".box") {
+			boxPath = filePath
+			break
+		}
 	}
 
-	// Assume there is only one .box file to upload
-	box := artifact.Files()[0]
-	if !strings.HasSuffix(box, ".box") {
-		return nil, false, false, fmt.Errorf("Unknown files in artifact from vagrant post-processor: %s", artifact.Files())
+	// If we didn't find a box file, we can't continue
+	if boxPath == "" {
+		return nil, false, false, fmt.Errorf("post-processor '%s' did not contain any box file", artifact.BuilderId())
 	}
 
-	provider := providerFromBuilderName(artifact.Id())
-	ui.Say(fmt.Sprintf("Preparing to upload box for '%s' provider to S3 bucket '%s'", provider, p.config.Bucket))
+	ui.Say(fmt.Sprintf("Preparing to upload box for '%s' provider to S3 bucket '%s'", p.config.BoxProvider, p.config.Bucket))
 
 	// determine box size
-	boxStat, err := os.Stat(box)
+	boxStat, err := os.Stat(boxPath)
 	if err != nil {
 		return nil, false, false, err
 	}
-	ui.Message(fmt.Sprintf("Box to upload: %s (%d bytes)", box, boxStat.Size()))
+	ui.Message(fmt.Sprintf("Box to upload: %s (%d bytes)", boxPath, boxStat.Size()))
 
 	// determine version
-	version := p.config.Version
-
-	if version == "" {
-		version, err = p.determineVersion()
+	if p.config.Version != "" {
+		ui.Message("`version` has been deprecated, please use `box_version` instead.")
+		p.config.BoxVersion = p.config.Version
+	}
+	if p.config.BoxVersion == "" {
+		p.config.BoxVersion, err = p.determineVersion()
 		if err != nil {
 			return nil, false, false, err
 		}
 
-		ui.Message(fmt.Sprintf("No version defined, using %s as new version", version))
+		ui.Message(fmt.Sprintf("No version defined, using %s as new version", p.config.BoxVersion))
 	} else {
-		ui.Message(fmt.Sprintf("Using %s as new version", version))
+		ui.Message(fmt.Sprintf("Using %s as new version", p.config.BoxVersion))
 	}
 
 	// generate the path to store the box in S3
-	boxPath := fmt.Sprintf("%s/%s/%s", p.config.BoxDir, version, path.Base(box))
+	boxRemotePath := fmt.Sprintf("%s/%s/%s", p.config.BoxDir, p.config.BoxVersion, path.Base(boxPath))
 
 	ui.Message("Generating checksum")
-	checksum, err := sum256(box)
+	checksum, err := sum256(boxPath)
 	if err != nil {
 		return nil, false, false, err
 	}
 	ui.Message(fmt.Sprintf("Checksum is %s", checksum))
 
 	// upload the box to S3
-	ui.Message(fmt.Sprintf("Uploading box to S3: %s, PartSize: %d, Concurrency: %d", boxPath, p.config.PartSize, p.config.Concurrency))
+	ui.Message(fmt.Sprintf("Uploading box to S3: %s, PartSize: %d, Concurrency: %d", boxRemotePath, p.config.PartSize, p.config.Concurrency))
 
 	start := time.Now()
-	err = p.uploadBox(box, boxPath)
+	err = p.uploadBox(boxPath, boxRemotePath)
 
 	if err != nil {
 		return nil, false, false, err
@@ -227,22 +229,21 @@ func (p *PostProcessor) PostProcess(context context.Context, ui packer.Ui, artif
 		ui.Message(fmt.Sprintf("Box upload took: %s", elapsed))
 	}
 
-	// get the latest manifest so we can add to it
 	ui.Message("Fetching latest manifest")
 	manifest, err := p.getManifest()
 	if err != nil {
 		return nil, false, false, err
 	}
 
-	ui.Message(fmt.Sprintf("Adding %s %s box to manifest", provider, version))
+	ui.Message(fmt.Sprintf("Adding %s,%s,%s box to manifest", p.config.BoxProvider, p.config.BoxArchitecture, p.config.BoxVersion))
 	var url string
 	if p.config.SignedExpiry == 0 {
-		url = generateS3Url(p.config.Region, p.config.Bucket, p.config.CloudFront, boxPath)
+		url = generateS3Url(p.config.Region, p.config.Bucket, p.config.CloudFront, boxRemotePath)
 	} else {
 		// fetch the new object
 		boxObject, _ := p.s3.GetObjectRequest(&s3.GetObjectInput{
 			Bucket: aws.String(p.config.Bucket),
-			Key:    aws.String(boxPath),
+			Key:    aws.String(boxRemotePath),
 		})
 
 		url, err = boxObject.Presign(p.config.SignedExpiry)
@@ -251,11 +252,13 @@ func (p *PostProcessor) PostProcess(context context.Context, ui packer.Ui, artif
 			return nil, false, false, err
 		}
 	}
-	if err := manifest.add(version, &Provider{
-		Name:         provider,
-		Url:          url,
-		ChecksumType: "sha256",
-		Checksum:     checksum,
+	if err := manifest.add(p.config.BoxVersion, &Provider{
+		Name:                p.config.BoxProvider,
+		Architecture:        p.config.BoxArchitecture,
+		DefaultArchitecture: p.config.BoxArchitecture == "amd64",
+		Url:                 url,
+		ChecksumType:        "sha256",
+		Checksum:            checksum,
 	}); err != nil {
 		return nil, false, false, err
 	}
@@ -380,16 +383,8 @@ func sum256(filePath string) (string, error) {
 // converts a packer builder name to the corresponding vagrant provider
 func providerFromBuilderName(name string) string {
 	switch name {
-	case "aws":
-		return "aws"
-	case "digitalocean":
-		return "digitalocean"
-	case "virtualbox":
-		return "virtualbox"
 	case "vmware":
 		return "vmware_desktop"
-	case "parallels":
-		return "parallels"
 	default:
 		return name
 	}
