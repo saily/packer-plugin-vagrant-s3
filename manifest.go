@@ -60,8 +60,10 @@ type Version struct {
 }
 
 type Provider struct {
-	Name         string `json:"name"`
-	Url          string `json:"url"`
-	ChecksumType string `json:"checksum_type"`
-	Checksum     string `json:"checksum"`
+	Name                string `json:"name"`
+	Url                 string `json:"url"`
+	ChecksumType        string `json:"checksum_type"`
+	Checksum            string `json:"checksum"`
+	Architecture        string `json:"architecture"`
+	DefaultArchitecture bool   `json:"default_architecture,omitempty"`
 }
