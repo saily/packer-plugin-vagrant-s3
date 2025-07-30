@@ -22,9 +22,9 @@ Then, run [`packer init`](https://www.packer.io/docs/commands/init).
 ```hcl
 packer {
   required_plugins {
-    amazon = {
+    vagrant-s3 = {
       version = ">= 1.6.0"
-      source  = "github.com/lmars/vagrant-s3"
+      source  = "github.com/3stack-software/vagrant-s3"
     }
   }
 }
@@ -49,7 +49,7 @@ packer {
   required_plugins {
     vagrant-s3 = {
       version = ">= 1.6.0"
-      source  = "github.com/lmars/vagrant-s3"
+      source  = "github.com/3stack-software/vagrant-s3"
     }
   }
 }
