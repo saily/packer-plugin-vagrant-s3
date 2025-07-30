@@ -23,7 +23,7 @@ Then, run [`packer init`](https://www.packer.io/docs/commands/init).
 packer {
   required_plugins {
     vagrant-s3 = {
-      version = ">= 1.6.0"
+      version = ">= 2.0.0"
       source  = "github.com/3stack-software/vagrant-s3"
     }
   }
@@ -48,7 +48,7 @@ Add the post-processor to your packer template **after** the `vagrant` post-proc
 packer {
   required_plugins {
     vagrant-s3 = {
-      version = ">= 1.6.0"
+      version = ">= 2.0.0"
       source  = "github.com/3stack-software/vagrant-s3"
     }
   }
